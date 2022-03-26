@@ -1,2 +1,3 @@
 - example `gen_server` using `etbx_event:subscribe/0`
 - config options for `EXIT_EVENT`, `EXIT_EVENTS_REQUIRED`, `EXIT_EVENTS_REQUIRED_IN_MS`, perhaps with mechanism to switch off default exit
+- sort out constants & add easy lookups from keys
