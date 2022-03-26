@@ -17,10 +17,10 @@ Run
 Use
 ---
 
-- Ensure `etbx` app is started in your release, create a `gen_server` to act as your TUI manager and have it call `etbx_event:subscribe/0`
+- Ensure `etbx` app is started in your release, create a `gen_server` to act as your TUI manager and have it call `etbx_event:subscribe/1`
 - It'll receive `#etbx_event` records for every keyboard event as `handle_info/2` messages, and you can use `etbx_core` functions like `put_cell/1` (to send `#etbx_cell` records containing `#etbx_position` children), `clear/0` and `present/0`
 - Various constants (`colors`, `attributes` etc) are defined in `etbx_constants`
-- When you're done listening to keyboard events and want to drop back to the erlang shell, call `etbx_event:unsubscribe/0`
+- When you're done listening to keyboard events and want to drop back to the erlang shell, call `etbx_event:unsubscribe/1`
 - If `etbx_event` terminates the session (which it does by default on receiving 3x `ctrl-c` within 500ms) you'll receive a `handle_info/2` message `etbx_session_end` at which point you can decide what to do
 
 Example `etbx_core:put_cell/1` call:
