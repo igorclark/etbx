@@ -1,0 +1,15 @@
+{application, etbx,
+ [{description, "macOS/erlang termbox wrapper, port of https://github.com/ndreynolds/ex_termbox"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {etbx_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["MIT"]},
+  {links, []}
+ ]}.
