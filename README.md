@@ -25,7 +25,7 @@ Use
 
 Example `etbx_core:put_cell/1` call:
 
-```
+```erlang
 etbx_core:put_cell( #etbx_cell{
     position = #etbx_position{
         x = X,
