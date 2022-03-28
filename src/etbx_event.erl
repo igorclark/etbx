@@ -114,8 +114,10 @@ handle_call( { subscribe, SubscriberPid }, _From, #etbx_event_state{ subscribers
 
 handle_call( { unsubscribe, SubscriberPid }, _From, #etbx_event_state{ subscribers = Subscribers } = State ) ->
 
+	NewSubscribers = sets:del_element( SubscriberPid, Subscribers ),
+
 	UnsubscribedState = State#etbx_event_state{
-		subscribers = sets:del_element( SubscriberPid, Subscribers )
+		subscribers = NewSubscribers
 	},
 
 	MaybeShutdownState = case sets:size( UnsubscribedState#etbx_event_state.subscribers ) of
