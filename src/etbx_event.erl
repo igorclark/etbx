@@ -21,9 +21,9 @@
 %% ------------------------------------------------------------------
 
 -record(
-	state, {
+	etbx_event_state, {
 		status :: ready | polling,
-		recipients :: sets:set(),
+		subscribers :: sets:set(),
 		exits :: non_neg_integer(),
 		exit_timeout_ref:: erlang:timer()
 	}
@@ -75,16 +75,16 @@ start_link() ->
 
 init( [] ) ->
 	process_flag( trap_exit, true ),
-	State = #state{
+	State = #etbx_event_state{
 		status = ready,
-		recipients = sets:new(),
+		subscribers = sets:new(),
 		exits = 0
 	},
     { ok, State }.
 
 %% ------------------------------------------------------------------
 
-handle_call( { subscribe, _SubscriberPid } = Msg, _From, #state{ status = ready } = State ) ->
+handle_call( { subscribe, _SubscriberPid } = Msg, _From, #etbx_event_state{ status = ready } = State ) ->
 
 	Pid = self(),
 
@@ -93,37 +93,37 @@ handle_call( { subscribe, _SubscriberPid } = Msg, _From, #state{ status = ready 
 	case etbx_core:start_polling( Pid ) of
 
 		{ ok, _Resource } ->
-			handle_call( Msg, _From, State#state{ status = polling } );
+			handle_call( Msg, _From, State#etbx_event_state{ status = polling } );
 
 		{ error, already_polling } ->
 			ok = etbx_core:stop_polling(),
 			{ ok, _SelfResource } = etbx_core:start_polling( Pid ),
-			handle_call( Msg, _From, State#state{ status = polling } );
+			handle_call( Msg, _From, State#etbx_event_state{ status = polling } );
 
 		{ error, Error } ->
 			{ reply, { error, { etbx_core, Error } }, State }
 
 	end;
 
-handle_call( { subscribe, SubscriberPid }, _From, #state{ recipients = Recipients } = State ) ->
-	NewRecipients = sets:add_element( SubscriberPid, Recipients ),
-	NewState = State#state{
-		recipients = NewRecipients
+handle_call( { subscribe, SubscriberPid }, _From, #etbx_event_state{ subscribers = Subscribers } = State ) ->
+	NewSubscribers = sets:add_element( SubscriberPid, Subscribers ),
+	NewState = State#etbx_event_state{
+		subscribers = NewSubscribers
 	},
 	{ reply, ok, NewState };
 
-handle_call( { unsubscribe, SubscriberPid }, _From, #state{ recipients = Recipients } = State ) ->
+handle_call( { unsubscribe, SubscriberPid }, _From, #etbx_event_state{ subscribers = Subscribers } = State ) ->
 
-	UnsubscribedState = State#state{
-		recipients = sets:del_element( SubscriberPid, Recipients )
+	UnsubscribedState = State#etbx_event_state{
+		subscribers = sets:del_element( SubscriberPid, Subscribers )
 	},
 
-	MaybeShutdownState = case sets:size( UnsubscribedState#state.recipients ) of
+	MaybeShutdownState = case sets:size( UnsubscribedState#etbx_event_state.subscribers ) of
 
 		0 ->
 			ok = etbx_core:stop_polling(),
 			etbx_core:shutdown(),
-			UnsubscribedState#state{
+			UnsubscribedState#etbx_event_state{
 				status = ready
 			};
 
@@ -145,43 +145,43 @@ handle_cast( _Msg, State ) ->
 %% ------------------------------------------------------------------
 
 handle_info( clear_exits, State ) ->
-	NewState = State#state{
+	NewState = State#etbx_event_state{
 		exits = 0
 	},
 	{ noreply, NewState };
 
 % first ctrl-c within EXIT_EVENTS_REQUIRED_IN_MS
-handle_info( { event, ?EXIT_EVENT_TUPLE } = Msg, #state{ exits = 0 } = State ) ->
+handle_info( { event, ?EXIT_EVENT_TUPLE } = Msg, #etbx_event_state{ exits = 0 } = State ) ->
 
 	NewTimerRef = erlang:send_after( ?EXIT_EVENTS_REQUIRED_IN_MS, self(), clear_exits ),
 
-	IncrementedExitState = State#state{
+	IncrementedExitState = State#etbx_event_state{
 		exits = 1,
 		exit_timeout_ref = NewTimerRef 
 	},
 
 	% forward all key events until we quit
-	[ Pid ! event_tuple_to_record( Msg ) || Pid <- sets:to_list( State#state.recipients ) ],
+	[ Pid ! event_tuple_to_record( Msg ) || Pid <- sets:to_list( State#etbx_event_state.subscribers ) ],
 
 	{ noreply, IncrementedExitState };
 
 % subsequent ctrl-c's within EXIT_EVENTS_REQUIRED_IN_MS
-handle_info( { event, ?EXIT_EVENT_TUPLE } = Msg, #state{ exits = Exits } = State)
+handle_info( { event, ?EXIT_EVENT_TUPLE } = Msg, #etbx_event_state{ exits = Exits } = State)
 when Exits < ( ?EXIT_EVENTS_REQUIRED - 1 ) ->
 	
-	IncrementedExitState = State#state{
+	IncrementedExitState = State#etbx_event_state{
 		exits = Exits + 1
 	},
 
 	% forward all key events until we quit
-	[ Pid ! event_tuple_to_record( Msg ) || Pid <- sets:to_list( State#state.recipients ) ],
+	[ Pid ! event_tuple_to_record( Msg ) || Pid <- sets:to_list( State#etbx_event_state.subscribers ) ],
 
 	{ noreply, IncrementedExitState };
 
 % final (EXIT_EVENTS_REQUIRED) ctrl-c within EXIT_EVENTS_REQUIRED_IN_MS
 handle_info(
 	{ event, ?EXIT_EVENT_TUPLE },
-	#state{ exits = ( ?EXIT_EVENTS_REQUIRED - 1 ), exit_timeout_ref = ExitTimeoutRef } = State
+	#etbx_event_state{ exits = ( ?EXIT_EVENTS_REQUIRED - 1 ), exit_timeout_ref = ExitTimeoutRef } = State
 ) ->
 
 	case is_reference( ExitTimeoutRef ) of
@@ -189,12 +189,14 @@ handle_info(
 		_ -> ok
 	end,
 
-	[ Pid ! etbx_session_end || Pid <- sets:to_list( State#state.recipients ) ],
+	% notify all subscribers about shutdown
+	[ Pid ! etbx_shutdown || Pid <- sets:to_list( State#etbx_event_state.subscribers ) ],
+
 	etbx_core:stop_polling(),
 	etbx_core:shutdown(),
 
-	NewState = State#state{
-		recipients = sets:new(),
+	NewState = State#etbx_event_state{
+		subscribers = sets:new(),
 		status = ready,
 		exits = 0
 	},
@@ -205,8 +207,8 @@ handle_info( { event, { _Type, _Mod, _Key, _Ch, _W, _H, _X, _Y } } = EventTuple,
 	EventRecord = event_tuple_to_record( EventTuple ),
 	handle_info( EventRecord, State );
 
-handle_info( #etbx_event{} = Event, #state{ recipients = Recipients } = State ) ->
-	[ Pid ! Event || Pid <- sets:to_list( Recipients ) ],
+handle_info( #etbx_event{} = Event, #etbx_event_state{ subscribers = Subscribers } = State ) ->
+	[ Pid ! Event || Pid <- sets:to_list( Subscribers ) ],
 	{ noreply, State };
 	
 handle_info( _Info, State ) ->
